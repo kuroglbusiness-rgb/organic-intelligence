@@ -20,7 +20,10 @@ create index if not exists idx_acquisition_events_ig_created
   on acquisition_events (ig_user_id, created_at);
 
 -- Une ligne contact_identities par ig_user_id — nécessaire pour upsert sans dupliquer
--- à chaque commentaire/DM entrant.
+-- à chaque commentaire/DM entrant. Index PLEIN (pas partiel) : un upsert onConflict
+-- généré par PostgREST ne peut pas matcher un index partiel sans répéter son WHERE dans
+-- la clause ON CONFLICT elle-même, ce qui échoue silencieusement (upsert non vérifié).
+-- On n'upsert jamais avec ig_user_id null côté code (déjà filtré en amont) donc la
+-- contrainte pleine ne pose pas de problème réel.
 create unique index if not exists idx_contact_identities_ig_user_id
-  on contact_identities (ig_user_id)
-  where ig_user_id is not null;
+  on contact_identities (ig_user_id);
