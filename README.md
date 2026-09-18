@@ -39,7 +39,8 @@ au lieu que tu suives ce README seul.
 
 Copie `.env.example` en `.env.local` et remplis chaque valeur récupérée à
 l'étape 1 (clé API Zernio, secret webhook Zernio, URL + clé Supabase). Choisis
-toi-même une longue chaîne aléatoire pour `LANDING_WEBHOOK_SECRET`.
+toi-même une longue chaîne aléatoire pour `LANDING_WEBHOOK_SECRET` et pour
+`DASHBOARD_PASSWORD` (mot de passe d'accès au dashboard interne, voir §4bis).
 
 ## 3. Domaine des Smart Links
 
@@ -50,20 +51,36 @@ projet). `BASE_URL` dans `.env` devient `https://track.kurotrd.com`.
 
 ## 4. Créer ta première ressource + règle mot-clé
 
-Dans Supabase > Table editor, insère une ligne (ou utilise SQL Editor) :
+Il faut d'abord connecter le compte Instagram lui-même (une seule fois, pas
+d'UI pour ça en V1) :
 
 ```sql
-insert into organic_resources (label, resource_type, destination_url)
-values ('Guide gratuit PDF', 'pdf', 'https://ton-lien-vers-le-pdf.com');
-
 insert into social_accounts (external_account_id, username)
 values ('ACCOUNT_ID_ZERNIO', 'forexia.ig'); -- l'accountId noté à l'étape 1
-
-insert into organic_automation_rules (social_account_id, keyword, resource_id)
-select sa.id, 'GUIDE', r.id
-from social_accounts sa, organic_resources r
-where sa.username = 'forexia.ig' and r.label = 'Guide gratuit PDF';
 ```
+
+Ensuite, la **ressource** (PDF/lien à envoyer) et la **règle mot-clé** se
+créent directement dans le dashboard interne (§4bis), page "Règles" — plus
+besoin de SQL brut à chaque nouvelle campagne.
+
+## 4bis. Dashboard interne
+
+`https://track.kurotrd.com/dashboard` — protégé par le mot de passe
+`DASHBOARD_PASSWORD` défini dans `.env.local` / Vercel.
+
+- **Vue d'ensemble** : leads totaux, clics Smart Link, taux de conversion,
+  répartition heat score, top contenu.
+- **Leads** : liste avec confiance d'attribution, heat score, intent score,
+  changement de statut pipeline.
+- **Contenu** : Reels/posts synchronisés depuis Zernio (bouton "Sync"),
+  clics/leads par contenu.
+- **Règles** : créer/activer/désactiver tes règles mot-clé → ressource sans
+  toucher à SQL.
+
+Avant la première utilisation, exécute aussi la migration
+`db/migrations/002_dashboard.sql` dans Supabase > SQL Editor (ajoute les
+colonnes/index nécessaires aux scores et à l'attribution — sans risque pour
+les données déjà présentes).
 
 ## 5. Configurer le webhook Zernio
 
@@ -88,20 +105,33 @@ avec le nom, l'email, le téléphone du lead, et `sl_id` récupéré depuis les
 UTMs/paramètres de la page où le RDV a été pris (Calendly doit recevoir et
 faire suivre `sl_id` — configurable en champ caché sur le formulaire Calendly).
 
-## Prochaines étapes (Phase 2, une fois que des leads remontent)
+## Prochaines étapes (pas encore construites)
 
-- Événements CAPI Meta (Lead / Schedule / Purchase) via Zernio
-- Dashboard CRM simple pour voir tes leads et leur pipeline
+- Événements CAPI Meta (Lead / Schedule / Purchase) via Zernio — nécessite
+  d'avoir configuré un Pixel/Business Manager Meta
+- Webhooks sortants vers Make/Zapier/n8n (schema v1, pour Telegram/SMS/CRM
+  tiers) — nécessite d'avoir un scénario Make/Zapier/n8n déjà prêt côté
+  destination
 - Backfill des anciens commentaires (jusqu'à 500) pour identifier tes
   engagés silencieux
-- Heat score et segmentation chauds/tièdes/froids
+- Attribution multi-touch (`INFLUENCED`, fenêtre 7 jours, modèles
+  first/last/influenced) — la V1 ne gère que `DETERMINISTIC` (clic Smart
+  Link) et un fallback `PROBABLE` (même IG < 24h)
+- Suivi des `story_reply` (nécessite d'abonner ce 3e event dans Zernio >
+  Webhooks, en plus de `message.received`/`comment.received`)
 
 ## Limites connues à garder en tête (héritées du PRD original)
 
-- Les navigateurs in-app Instagram peuvent tronquer `fbclid` — c'est pour ça
-  que le redirect se fait côté serveur (302) plutôt qu'en JS
+- Navigateur in-app Instagram : une page interstitielle "Ouvrir dans le
+  navigateur" est servie avant le redirect final (`pages/api/s/[id].js`) —
+  pas de schéma natif iOS/Android (`x-safari-https://`/`intent://`), version
+  pragmatique volontairement simplifiée
 - Max 3 boutons par DM (limite Instagram Messaging)
-- Le champ exact des payloads Zernio (`message.text`, `account.id`, etc.)
-  vient de leur doc publique au moment de l'écriture de ce code — vérifie
-  dans Zernio > Webhooks > Webhook logs après ton premier test, et ajuste
-  `pages/api/webhooks/zernio.js` si un nom de champ a changé
+- Le champ exact des payloads Zernio (`message.text`, `account.id`,
+  `comment.media_id`, `sender.username`, etc.) vient de leur doc publique au
+  moment de l'écriture de ce code — vérifie dans Zernio > Webhooks > Webhook
+  logs après ton premier test, et ajuste `pages/api/webhooks/zernio.js` /
+  `lib/zernio.js` si un nom de champ a changé (même chose pour le sync de
+  contenu, endpoint deviné par analogie)
+- Le mot de passe unique du dashboard n'a pas de limitation de tentatives —
+  choisis-en un long et aléatoire, ne le partage pas
